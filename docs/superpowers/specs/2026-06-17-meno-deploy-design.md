@@ -196,18 +196,22 @@ The `:443` block references a certificate that does not exist on the first run, 
 
 Run on the host: `git pull && sudo ./scripts/deploy.sh`. Re-running is safe.
 
-## 9. Security: locking down `:9012` (mandatory prerequisite of the gate)
+## 9. Security: locking down `:9012`
 
-Express currently binds `0.0.0.0:9012`, i.e. it is reachable directly from the
-internet, **bypassing both TLS and the token gate** — anyone could hit
-`meno.nsu.ru:9012` and reach the app ungated. The token wall (§13) is therefore only
+Express currently binds `0.0.0.0:9012` and is reachable directly from the internet
+(confirmed: `http://84.237.50.35:9012` is open — it is the current corporate access
+path), **bypassing both TLS and the token gate**. The token wall (§13) is only
 meaningful once this is closed.
 
-**Fix (mandatory, and the FIRST step of rollout):** bind Express to `127.0.0.1` — a
-one-line, revertable change in the **Meno-Web** repo (`server.js`, default host),
-deployed before the site is reachable. The backend `:9006` already binds `127.0.0.1`
-(re-verified). `Meno-Deploy` ships no firewall tooling; loopback binding is the clean
-primary control and avoids the SSH lock-out footgun.
+**Fix (mandatory):** bind Express to `127.0.0.1` — a one-line, revertable change in the
+**Meno-Web** repo (`server.js`, default host). The backend `:9006` already binds
+`127.0.0.1` (re-verified). `Meno-Deploy` ships no firewall tooling; loopback binding is
+the clean primary control and avoids the SSH lock-out footgun.
+
+**Timing:** because `:9012` is the *current* live access path and `meno.nsu.ru` is not
+serving the app yet, close `:9012` **right after** the gated path is verified — not
+before — to avoid cutting current access. The short overlap (both paths up) is no more
+exposed than today. See the rollout order in §13.
 
 ## 10. Verification
 
@@ -283,12 +287,14 @@ on `:80`) keeps working. `:443` never serves ACME, so no auth exception is neede
 - During first-time cert issuance the bootstrap vhost returns `404` for everything
   except ACME — the app is not exposed even in that window.
 
-**Rollout order (safe):**
+**Rollout order (safe — gate first, then close the port):**
 
-1. **Meno-Web:** bind Express to `127.0.0.1`, redeploy (§9) — closes the direct-`:9012`
-   bypass. (Today the app's only public exposure is direct `:9012`; this removes it.)
-2. `set-gate-token.sh` — create the token.
-3. `deploy.sh` — install the gated vhost.
+1. `set-gate-token.sh` — create the token.
+2. `deploy.sh` — install the gated vhost; `meno.nsu.ru` goes live (cert issued over
+   `:80` without disrupting `:9012`).
+3. Verify the gated path (401 without token, 200 with).
+4. **Only then** bind Express to `127.0.0.1` + `pm2 restart meno-web` (§9) — closes the
+   direct-`:9012` bypass. Doing this earlier would cut the current access path.
 
 **No-bypass verification:**
 

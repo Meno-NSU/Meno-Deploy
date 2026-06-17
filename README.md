@@ -83,19 +83,27 @@ served without the gate.
 **Emergency — close access immediately:** `sudo systemctl stop nginx` (with `:9012`
 on loopback, the app then has no public path), or rotate the token.
 
-## Lock down `:9012` (mandatory FIRST step)
+## Lock down `:9012` (mandatory — right after the gate is verified)
 
-The gate is bypassable while Meno-Web's Express binds `0.0.0.0:9012` (anyone could
-hit `meno.nsu.ru:9012` directly). So **before** the site is reachable, bind Express
-to `127.0.0.1` in the **Meno-Web** repo (`server.js`, default host) and redeploy
-`pm2 meno-web`. nginx proxies to `127.0.0.1:9012`, so this is transparent to users.
-The backend `:9006` already binds `127.0.0.1`.
+The gate is bypassable while Meno-Web's Express binds `0.0.0.0:9012` (anyone can hit
+`84.237.50.35:9012` directly). Close it by binding Express to `127.0.0.1` (`server.js`,
+default host) and restarting `pm2 meno-web`; the backend `:9006` already binds
+`127.0.0.1`.
+
+**Order matters:** `:9012` is the *current* (corporate) access path and `meno.nsu.ru`
+isn't serving the app yet — so close `:9012` **after** the gated path is confirmed
+working, never before, or you cut off current access. The brief overlap where both
+paths work is no more exposed than today (where `:9012` is already open).
 
 ### Rollout order
 
-1. Meno-Web: bind `127.0.0.1`, `pm2 restart meno-web`.
-2. `sudo ./scripts/set-gate-token.sh` (capture the token).
-3. `sudo ./scripts/deploy.sh`.
+1. `sudo ./scripts/set-gate-token.sh` (capture the token).
+2. `sudo ./scripts/deploy.sh` — gated `meno.nsu.ru` goes live (the cert is issued over
+   `:80` without disrupting `:9012`).
+3. Verify the gated path: `curl -skI -u menon:TOKEN https://meno.nsu.ru` → 200, and
+   `curl -skI https://meno.nsu.ru` → 401.
+4. **Only now** close the direct port: in Meno-Web bind `127.0.0.1`, `pm2 restart meno-web`.
+5. Final no-bypass check (below).
 
 ### Verify nobody can bypass the gate
 

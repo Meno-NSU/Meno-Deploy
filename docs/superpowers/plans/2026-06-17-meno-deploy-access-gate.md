@@ -267,19 +267,27 @@ proxies to `127.0.0.1:9012` so this is transparent to users.
 with:
 
 ````markdown
-## Lock down `:9012` (mandatory FIRST step)
+## Lock down `:9012` (mandatory — right after the gate is verified)
 
-The gate is bypassable while Meno-Web's Express binds `0.0.0.0:9012` (anyone could
-hit `meno.nsu.ru:9012` directly). So **before** the site is reachable, bind Express
-to `127.0.0.1` in the **Meno-Web** repo (`server.js`, default host) and redeploy
-`pm2 meno-web`. nginx proxies to `127.0.0.1:9012`, so this is transparent to users.
-The backend `:9006` already binds `127.0.0.1`.
+The gate is bypassable while Meno-Web's Express binds `0.0.0.0:9012` (anyone can hit
+`84.237.50.35:9012` directly). Close it by binding Express to `127.0.0.1` (`server.js`,
+default host) and restarting `pm2 meno-web`; the backend `:9006` already binds
+`127.0.0.1`.
+
+**Order matters:** `:9012` is the *current* (corporate) access path and `meno.nsu.ru`
+isn't serving the app yet — so close `:9012` **after** the gated path is confirmed
+working, never before, or you cut off current access. The brief overlap where both
+paths work is no more exposed than today (where `:9012` is already open).
 
 ### Rollout order
 
-1. Meno-Web: bind `127.0.0.1`, `pm2 restart meno-web`.
-2. `sudo ./scripts/set-gate-token.sh` (capture the token).
-3. `sudo ./scripts/deploy.sh`.
+1. `sudo ./scripts/set-gate-token.sh` (capture the token).
+2. `sudo ./scripts/deploy.sh` — gated `meno.nsu.ru` goes live (the cert is issued over
+   `:80` without disrupting `:9012`).
+3. Verify the gated path: `curl -skI -u menon:TOKEN https://meno.nsu.ru` → 200, and
+   `curl -skI https://meno.nsu.ru` → 401.
+4. **Only now** close the direct port: in Meno-Web bind `127.0.0.1`, `pm2 restart meno-web`.
+5. Final no-bypass check (below).
 
 ### Verify nobody can bypass the gate
 
@@ -299,7 +307,7 @@ ss -tlnp | grep -E ':(9012|9006)'   # expect 127.0.0.1 only
 
 - [ ] **Step 3: Verify the runbook entries**
 
-Run: `for s in "Access gate" "set-gate-token.sh --rotate" "Rollout order" "expect 401" "mandatory FIRST"; do grep -q "$s" README.md || echo "MISSING: $s"; done; echo DONE`
+Run: `for s in "Access gate" "set-gate-token.sh --rotate" "Rollout order" "expect 401" "Order matters"; do grep -q "$s" README.md || echo "MISSING: $s"; done; echo DONE`
 Expected: `DONE` with no `MISSING:` lines.
 
 - [ ] **Step 4: Commit**
@@ -367,54 +375,59 @@ git commit -m "fix(server): bind to 127.0.0.1 by default (serve only via nginx g
 
 ## Task 6: Publish and roll out on the server (operational)
 
-After the gate code is merged to `main` and pushed (handled by the finishing step), perform the rollout **on the server** (`m.kulakov@meno`) in the safe order. This is the live, end-to-end verification.
+After the gate code is merged to `main` and pushed (handled by the finishing step), perform the rollout **on the server** (`m.kulakov@meno`) in the safe order — **gate up and verified first, then close the direct port** (`:9012` is the current live access path, so closing it earlier would cut access). This is the live, end-to-end verification.
 
-- [ ] **Step 1: Close the bypass first — deploy the Meno-Web bind change**
-
-```bash
-cd ~/Meno-Stand/Meno-Web && git pull && npm install && npm run build && pm2 restart meno-web
-ss -tlnp | grep ':9012'     # expect 127.0.0.1:9012 (NOT 0.0.0.0:9012)
-```
-Expected: `:9012` now bound to `127.0.0.1`. (App now has no public path at all — nginx still shows the default page.)
-
-- [ ] **Step 2: Get Meno-Deploy onto the server**
+- [ ] **Step 1: Get Meno-Deploy onto the server**
 
 ```bash
 cd ~/Meno-Stand && git clone https://github.com/Meno-NSU/Meno-Deploy.git 2>/dev/null || (cd Meno-Deploy && git pull)
 cd ~/Meno-Stand/Meno-Deploy && cp -n .env.example .env   # then edit .env: real LETSENCRYPT_EMAIL
 ```
 
-- [ ] **Step 3: Install dependencies (certbot + htpasswd)**
+- [ ] **Step 2: Install dependencies (certbot + htpasswd)**
 
 Run: `command -v certbot >/dev/null && command -v htpasswd >/dev/null && echo OK || sudo apt-get update && sudo apt-get install -y certbot apache2-utils`
 Expected: tools present (or installed).
 
-- [ ] **Step 4: Create the shared token**
+- [ ] **Step 3: Create the shared token**
 
 Run: `sudo ./scripts/set-gate-token.sh`
 Expected: prints `user: menon` and a `token:` line **once** — copy it for the group. Writes `/etc/nginx/.meno_htpasswd`.
 
-- [ ] **Step 5: Deploy the gated vhost**
+- [ ] **Step 4: Deploy the gated vhost**
 
 Run: `sudo ./scripts/deploy.sh`
-Expected: bootstrap → cert issued → production vhost installed → `nginx -t` `syntax is ok` / `test is successful` → reload. Ends with `[deploy] done`.
+Expected: bootstrap → cert issued (over `:80`, `:9012` undisturbed) → production vhost installed → `nginx -t` `syntax is ok` / `test is successful` → reload. Ends with `[deploy] done`. `meno.nsu.ru` is now gated-serving; `:9012` is still open (expected at this point).
 
-- [ ] **Step 6: Verify the gate and the no-bypass guarantees**
+- [ ] **Step 5: Verify the gated path works (before closing anything)**
 
 ```bash
 curl -skI https://meno.nsu.ru                         # expect 401
 curl -skI -u "menon:THE_TOKEN" https://meno.nsu.ru    # expect 200
 curl -I http://meno.nsu.ru/.well-known/acme-challenge/probe  # expect 404 (NOT 401)
 sudo certbot renew --dry-run                          # expect success
-ss -tlnp | grep -E ':(9012|9006)'                     # expect 127.0.0.1 only
 ```
-Then from **outside** the NSU network:
+Expected: unauthenticated = `401`; correct token = `200`; ACME open; renewal dry-run passes. Confirm testers can reach the app via the token **before** cutting `:9012`.
+
+- [ ] **Step 6: Now close the direct port (Meno-Web bind change)**
+
 ```bash
-nc -vz meno.nsu.ru 9012   # expect refused/timeout (not "succeeded")
-nc -vz meno.nsu.ru 9006   # expect refused/timeout
-curl -skI https://meno.nsu.ru   # expect 401 (gate reachable, no token = no access)
+cd ~/Meno-Stand/Meno-Web && git pull && npm install && npm run build && pm2 restart meno-web
+ss -tlnp | grep ':9012'     # expect 127.0.0.1:9012 (NOT 0.0.0.0:9012)
 ```
-Expected: unauthenticated = `401`; correct token = `200`; raw app ports unreachable from outside; ACME open; renewal dry-run passes.
+Expected: `:9012` now bound to `127.0.0.1`. The direct corporate path is closed; the only way in is the gated `meno.nsu.ru`.
+
+- [ ] **Step 7: Final no-bypass verification**
+
+On the server: `ss -tlnp | grep -E ':(9012|9006)'` → expect `127.0.0.1` only.
+From **outside** the NSU network:
+```bash
+nc -vz -w5 84.237.50.35 9012   # expect refused/timeout (not "succeeded")
+nc -vz -w5 84.237.50.35 9006   # expect refused/timeout
+curl -skI https://meno.nsu.ru                       # expect 401
+curl -skI -u "menon:THE_TOKEN" https://meno.nsu.ru  # expect 200
+```
+Expected: raw app ports unreachable from the internet; the gated path still works with the token.
 
 ---
 
