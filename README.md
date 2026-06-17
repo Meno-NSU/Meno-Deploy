@@ -59,12 +59,58 @@ curl -skI https://meno.nsu.ru
   `nginx/meno.nsu.ru.conf` at them, run `sudo ./scripts/deploy.sh`, and do **not**
   run `issue-cert.sh`.
 
-## Security follow-up: lock down `:9012`
+## Access gate (closed pilot — required)
 
-The Meno-Web Express server currently binds `0.0.0.0:9012`, i.e. it is reachable
-directly from the internet, bypassing TLS. Fix it in the **Meno-Web** repo by
-binding to `127.0.0.1` (one-line change in `server.js`, default host). nginx
-proxies to `127.0.0.1:9012` so this is transparent to users.
+The whole site is behind a single shared token (nginx Basic Auth). It is **not
+public** until InfoSec sign-off.
+
+```bash
+# On the server, once (prints the token a single time — copy it):
+sudo ./scripts/set-gate-token.sh
+# Rotate later (e.g. on leak or when someone leaves the group):
+sudo ./scripts/set-gate-token.sh --rotate
+sudo systemctl reload nginx
+```
+
+Testers open `https://meno.nsu.ru`, and the browser prompts for credentials:
+enter user `menon` and the shared token. After that the Menon app loads and its
+own email/password login applies as usual.
+
+`deploy.sh` is **fail-closed**: it refuses to install the gated vhost if the token
+file is missing, and `nginx -t` would fail too — there is no state where the app is
+served without the gate.
+
+**Emergency — close access immediately:** `sudo systemctl stop nginx` (with `:9012`
+on loopback, the app then has no public path), or rotate the token.
+
+## Lock down `:9012` (mandatory FIRST step)
+
+The gate is bypassable while Meno-Web's Express binds `0.0.0.0:9012` (anyone could
+hit `meno.nsu.ru:9012` directly). So **before** the site is reachable, bind Express
+to `127.0.0.1` in the **Meno-Web** repo (`server.js`, default host) and redeploy
+`pm2 meno-web`. nginx proxies to `127.0.0.1:9012`, so this is transparent to users.
+The backend `:9006` already binds `127.0.0.1`.
+
+### Rollout order
+
+1. Meno-Web: bind `127.0.0.1`, `pm2 restart meno-web`.
+2. `sudo ./scripts/set-gate-token.sh` (capture the token).
+3. `sudo ./scripts/deploy.sh`.
+
+### Verify nobody can bypass the gate
+
+```bash
+# From OUTSIDE the NSU network — these ports must NOT be reachable:
+nc -vz meno.nsu.ru 9012   # expect: refused/timeout
+nc -vz meno.nsu.ru 9006   # expect: refused/timeout
+# Gate works:
+curl -skI https://meno.nsu.ru                 # expect 401
+curl -skI -u menon:THE_TOKEN https://meno.nsu.ru  # expect 200
+# ACME stays open (renewal) and is NOT gated:
+curl -I http://meno.nsu.ru/.well-known/acme-challenge/probe  # expect 404, not 401
+# On the server:
+ss -tlnp | grep -E ':(9012|9006)'   # expect 127.0.0.1 only
+```
 
 ## Future optimization: Variant B
 
