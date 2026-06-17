@@ -236,8 +236,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 if [[ -f "$REPO_DIR/.env" ]]; then
+    set -a
     # shellcheck disable=SC1091
-    set -a; source "$REPO_DIR/.env"; set +a
+    source "$REPO_DIR/.env"
+    set +a
 fi
 : "${DOMAIN:?DOMAIN must be set in .env}"
 : "${LETSENCRYPT_EMAIL:?LETSENCRYPT_EMAIL must be set in .env}"
@@ -297,8 +299,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 if [[ -f "$REPO_DIR/.env" ]]; then
+    set -a
     # shellcheck disable=SC1091
-    set -a; source "$REPO_DIR/.env"; set +a
+    source "$REPO_DIR/.env"
+    set +a
 fi
 : "${DOMAIN:?DOMAIN must be set in .env}"
 
