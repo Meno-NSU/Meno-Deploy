@@ -1,0 +1,6 @@
+# Local environment — never commit the real values/secrets
+.env
+
+# OS / editor cruft
+.DS_Store
+*.swp
