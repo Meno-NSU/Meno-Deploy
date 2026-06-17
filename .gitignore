@@ -4,3 +4,7 @@
 # OS / editor cruft
 .DS_Store
 *.swp
+
+# Never commit an access-token file (the real one lives at /etc/nginx/.meno_htpasswd)
+*.htpasswd
+.meno_htpasswd
