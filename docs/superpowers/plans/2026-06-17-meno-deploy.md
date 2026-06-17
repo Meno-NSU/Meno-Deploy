@@ -58,8 +58,8 @@ Cross-repo follow-up (Task 9, in **Meno-Web**): bind Express to `127.0.0.1`.
 DOMAIN=meno.nsu.ru
 
 # Email used for Let's Encrypt registration and expiry notices.
-# Replace with a real, monitored address before deploying.
-LETSENCRYPT_EMAIL=admin@nsu.ru
+# Replace with a real address you control before deploying.
+LETSENCRYPT_EMAIL=you@example.com
 ```
 
 - [ ] **Step 3: Verify `.env` would be ignored**
