@@ -28,6 +28,7 @@ git clone https://github.com/Meno-NSU/Meno-Deploy.git
 cd Meno-Deploy
 cp .env.example .env
 # edit .env — set a real LETSENCRYPT_EMAIL
+sudo ./scripts/set-gate-token.sh    # create the access token (printed once — copy it)
 sudo ./scripts/deploy.sh
 ```
 
@@ -44,9 +45,10 @@ cd ~/Meno-Stand/Meno-Deploy && git pull && sudo ./scripts/deploy.sh
 ## Verify
 
 ```bash
-curl -I  http://meno.nsu.ru                      # expect 301 → https
-curl -skI https://meno.nsu.ru                    # expect 200 + valid cert
-# From OUTSIDE the NSU network (phone/hotspot): expect a TLS handshake, not a timeout
+curl -I  http://meno.nsu.ru                          # expect 301 → https
+curl -skI https://meno.nsu.ru                        # expect 401 (gate: no token)
+curl -skI -u menon:THE_TOKEN https://meno.nsu.ru     # expect 200 + valid cert
+# From OUTSIDE the NSU network (phone/hotspot): TLS handshake + 401, not a timeout
 curl -skI https://meno.nsu.ru
 ```
 
