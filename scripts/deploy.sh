@@ -54,6 +54,14 @@ if [[ ! -f "$CERT_LIVE" ]]; then
     "$SCRIPT_DIR/issue-cert.sh"
 fi
 
+# Fail-closed: never install the gated vhost without its token file. (nginx -t
+# would also fail on a missing auth_basic_user_file; this gives a clear message.)
+if [[ ! -f /etc/nginx/.meno_htpasswd ]]; then
+    echo "[deploy] ERROR: gate token /etc/nginx/.meno_htpasswd is missing." >&2
+    echo "         Create it first:  sudo ./scripts/set-gate-token.sh" >&2
+    exit 1
+fi
+
 # 3. Install the production vhost (overwrites the bootstrap site of the same name).
 echo "[deploy] installing production vhost"
 enable_site "$REPO_DIR/nginx/meno.nsu.ru.conf" "$DOMAIN"
