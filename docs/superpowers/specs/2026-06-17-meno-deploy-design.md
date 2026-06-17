@@ -7,16 +7,20 @@
 ## 1. Purpose & scope
 
 `Meno-Deploy` is the infrastructure-as-code repository that exposes the **Meno-Web**
-frontend at the public address **`meno.nsu.ru`** (84.237.50.35) over HTTPS.
+frontend at **`meno.nsu.ru`** (84.237.50.35) over HTTPS, **gated behind a shared
+access token** so only the dev/test group can reach it. This is a **closed pilot,
+not a public launch** — the system processes personal data and must not be publicly
+reachable until the information-security team signs off (registration, session
+storage, PD handling).
 
 It owns exactly one concern: the **public edge** — an nginx reverse proxy that
-terminates TLS and forwards traffic to the already-running Meno-Web Express
-server. It does **not** own application lifecycle (that stays with the app repos'
-`run_backend.sh` / pm2).
+terminates TLS, enforces the token gate, and forwards traffic to the already-running
+Meno-Web Express server. It does **not** own application lifecycle (that stays with
+the app repos' `run_backend.sh` / pm2).
 
-**Goal:** a browser hitting `https://meno.nsu.ru` reaches the Meno-Web SPA and its
-`/v1/*` API (including SSE chat streaming) securely, reproducibly, and with
-config tracked in git.
+**Goal:** a browser hitting `https://meno.nsu.ru` is challenged for the shared token;
+only with it does the request reach the Meno-Web SPA and its `/v1/*` API (including
+SSE chat streaming). Secure, reproducible, config tracked in git, and reversible.
 
 ## 2. Current state (diagnosed on the server, 2026-06-17)
 
@@ -87,7 +91,8 @@ Meno-Deploy/
 │       └── meno-sse.conf              # streaming: proxy_buffering off, long timeouts
 ├── scripts/
 │   ├── deploy.sh                      # idempotent: lay down config, nginx -t, reload
-│   └── issue-cert.sh                  # certbot webroot issuance + reload deploy-hook
+│   ├── issue-cert.sh                  # certbot webroot issuance + reload deploy-hook
+│   └── set-gate-token.sh              # generate shared token → bcrypt htpasswd (§13)
 └── docs/superpowers/specs/2026-06-17-meno-deploy-design.md
 ```
 
@@ -191,15 +196,18 @@ The `:443` block references a certificate that does not exist on the first run, 
 
 Run on the host: `git pull && sudo ./scripts/deploy.sh`. Re-running is safe.
 
-## 9. Security: locking down `:9012`
+## 9. Security: locking down `:9012` (mandatory prerequisite of the gate)
 
 Express currently binds `0.0.0.0:9012`, i.e. it is reachable directly from the
-internet, bypassing TLS. **Chosen fix:** bind Express to `127.0.0.1` — a one-line,
-revertable change in the **Meno-Web** repo (`server.js` / `.env`), done as a
-separate commit there. `Meno-Deploy` does not ship firewall tooling.
+internet, **bypassing both TLS and the token gate** — anyone could hit
+`meno.nsu.ru:9012` and reach the app ungated. The token wall (§13) is therefore only
+meaningful once this is closed.
 
-This repo's runbook records the recommendation and the exact change; it is tracked
-as a follow-up item, not part of the nginx deploy itself.
+**Fix (mandatory, and the FIRST step of rollout):** bind Express to `127.0.0.1` — a
+one-line, revertable change in the **Meno-Web** repo (`server.js`, default host),
+deployed before the site is reachable. The backend `:9006` already binds `127.0.0.1`
+(re-verified). `Meno-Deploy` ships no firewall tooling; loopback binding is the clean
+primary control and avoids the SSH lock-out footgun.
 
 ## 10. Verification
 
@@ -228,5 +236,108 @@ as a follow-up item, not part of the nginx deploy itself.
   after deploy.
 - **Let's Encrypt renewal silently failing** if the network posture changes later —
   mitigated by `certbot renew --dry-run` in the runbook and the deploy-hook reload.
-- **`:9012` exposure** until the Meno-Web bind fix lands — tracked as a follow-up
-  (§9).
+- **`:9012` bypass** — closed as the mandatory first rollout step (§9, §13); the gate
+  is only meaningful once Express is loopback-bound.
+- **Shared-token leak** — one leaked token compromises all access; mitigated by
+  rotation (`set-gate-token.sh --rotate`), the accepted trade-off of the single-token
+  model.
+
+## 13. Access gate — closed-pilot token wall
+
+Restricts the entire site to holders of a single shared token, enforced at the nginx
+edge in front of everything. Extends §6 (vhost) and §9 (loopback bind).
+
+**Mechanism:** nginx HTTP Basic Auth (`auth_basic`) on the whole `:443` server block —
+checked *before* `proxy_pass`, so an unauthenticated request never reaches the app.
+Zero custom code, minimal attack surface.
+
+**Token model:** a single shared credential for the dev/test group (user `menon` +
+token). Chosen for simple distribution; the trade-off (leak → rotate for everyone, no
+per-user audit) is accepted and noted in the runbook.
+
+**nginx changes** — add to the `:443` server block of `meno.nsu.ru.conf` (§6):
+
+```nginx
+auth_basic           "Menon — restricted";
+auth_basic_user_file /etc/nginx/.meno_htpasswd;
+```
+
+The `:80` block is unchanged: it only 301-redirects (and serves ACME), with **no**
+auth — so the token is **only ever sent over TLS**, and Let's Encrypt renewal (HTTP-01
+on `:80`) keeps working. `:443` never serves ACME, so no auth exception is needed there.
+
+**Token management** — `scripts/set-gate-token.sh` (run under sudo):
+
+- Generates a strong random token (`openssl rand -base64 32`), writes
+  `/etc/nginx/.meno_htpasswd` via `htpasswd -B` (bcrypt), `chmod 640 root:www-data`,
+  and **prints the token once** for out-of-band distribution.
+- Overwriting an existing token requires `--rotate` (so `deploy.sh` never clobbers it).
+- Only the bcrypt **hash** is stored on disk; the plaintext token is never written to
+  the repo. `/etc/nginx/.meno_htpasswd` lives outside the repo; `.env` is git-ignored.
+
+**Fail-closed by construction:**
+
+- If the htpasswd file is missing, `nginx -t` fails on `auth_basic_user_file` →
+  `deploy.sh` does not reload, and additionally refuses to install the gated vhost
+  without it. There is no state in which the app is served un-gated.
+- During first-time cert issuance the bootstrap vhost returns `404` for everything
+  except ACME — the app is not exposed even in that window.
+
+**Rollout order (safe):**
+
+1. **Meno-Web:** bind Express to `127.0.0.1`, redeploy (§9) — closes the direct-`:9012`
+   bypass. (Today the app's only public exposure is direct `:9012`; this removes it.)
+2. `set-gate-token.sh` — create the token.
+3. `deploy.sh` — install the gated vhost.
+
+**No-bypass verification:**
+
+- From outside: `nc -vz meno.nsu.ru 9012` and `:9006` → unreachable (loopback).
+- `curl -skI https://meno.nsu.ru` (no creds) → **401**; with `-u menon:<token>` → **200**.
+- `curl -I http://meno.nsu.ru/.well-known/acme-challenge/x` → **404, not 401** (path not
+  gated) and `certbot renew --dry-run` succeeds.
+- On host `ss -tlnp`: only nginx on `:80/:443` is public; `:9012`/`:9006` on `127.0.0.1`.
+
+**Security / legal posture (technical controls only — not legal advice):**
+
+- The gate makes the site non-public, so random internet users cannot reach the
+  registration endpoint or any PD — supporting the "not public until ИБ sign-off" stance.
+- Distribute the token over a secure channel; rotate on leak (`--rotate`).
+- Rate-limiting (`limit_req`) is **not** in v1: a high-entropy token makes brute force
+  infeasible, and `limit_req` risks throttling the SPA's burst of asset requests on first
+  load. Documented as a tunable option (§11).
+- Legal sign-off (152-ФЗ etc.) remains with the user / ИБ; this repo provides correct
+  technical controls only.
+
+## 14. Reversibility & rollback
+
+The deploy mutates **only the nginx edge** (routing/TLS/auth). It does **not** touch the
+application, backend, or database — no migrations, no data writes. Blast radius is the
+edge layer.
+
+| Action | Reversible? | How / how fast |
+|---|---|---|
+| Meno-Web bind → `127.0.0.1` + `pm2 restart` | Yes | revert the line + `pm2 restart` (seconds); no data touched |
+| `apt install certbot` | Yes | `apt remove`, or leave it (harmless) |
+| nginx snippets/vhost, drop `default`, reload | Yes | README rollback: restore `default`, remove meno vhost, reload (~5 s) |
+| Let's Encrypt issuance | Mostly | files deletable (`certbot delete`); but a public CT-log record remains (below) |
+| Token / htpasswd | Yes | delete the file or `set-gate-token.sh --rotate` |
+| Application / database | Untouched | no migrations, no writes — system state unchanged |
+
+**Kill switches (close access immediately):**
+
+- `sudo systemctl stop nginx` → site instantly unreachable on `:80/:443`; since `:9012`
+  is loopback by then, the app has no public path at all. Reverse with `systemctl start`.
+- Rollback to the default vhost → back to the stock nginx page, app not exposed (~5 s).
+- Close access while keeping the site up: `set-gate-token.sh --rotate` (or remove the
+  htpasswd) + reload → everyone gets `401`.
+
+**The one irreversible footprint:** issuing a cert from a public CA writes the hostname
+to **Certificate Transparency** logs (e.g. crt.sh) — an immutable public record that
+`meno.nsu.ru` has a certificate. But the hostname is already in **public DNS** (resolves
+to `84.237.50.35`), so the host's existence is already discoverable, and the gate means
+discovery ≠ access. If even this footprint is unwanted, use an NSU-issued or self-signed
+cert (no public CT); likely unnecessary.
+
+**Fail-safe:** any config error fails `nginx -t`, which blocks the reload and leaves the
+previous working state. There is no failure mode that serves the app un-gated.
