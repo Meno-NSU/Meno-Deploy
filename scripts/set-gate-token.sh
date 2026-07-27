@@ -47,4 +47,5 @@ echo "  user:  $GATE_USER"
 echo "  token: $TOKEN"
 echo "  =================================================="
 echo
-echo "Next: sudo ./scripts/deploy.sh   (applies the gated vhost)"
+echo "Next: restore the auth_basic directives in nginx/meno.nsu.ru.conf, then"
+echo "      sudo ./scripts/deploy.sh   (re-applies the gated vhost)"

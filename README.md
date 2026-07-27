@@ -28,7 +28,6 @@ git clone https://github.com/Meno-NSU/Meno-Deploy.git
 cd Meno-Deploy
 cp .env.example .env
 # edit .env — set a real LETSENCRYPT_EMAIL
-sudo ./scripts/set-gate-token.sh    # create the access token (printed once — copy it)
 sudo ./scripts/deploy.sh
 ```
 
@@ -46,9 +45,8 @@ cd ~/Meno-Stand/Meno-Deploy && git pull && sudo ./scripts/deploy.sh
 
 ```bash
 curl -I  http://meno.nsu.ru                          # expect 301 → https
-curl -skI https://meno.nsu.ru                        # expect 401 (gate: no token)
-curl -skI -u menon:THE_TOKEN https://meno.nsu.ru     # expect 200 + valid cert
-# From OUTSIDE the NSU network (phone/hotspot): TLS handshake + 401, not a timeout
+curl -skI https://meno.nsu.ru                        # expect 200 + valid cert (public)
+# From OUTSIDE the NSU network (phone/hotspot): TLS handshake + 200, not a timeout
 curl -skI https://meno.nsu.ru
 ```
 
@@ -61,65 +59,46 @@ curl -skI https://meno.nsu.ru
   `nginx/meno.nsu.ru.conf` at them, run `sudo ./scripts/deploy.sh`, and do **not**
   run `issue-cert.sh`.
 
-## Access gate (closed pilot — required)
+## Access gate (removed — the site is public)
 
-The whole site is behind a single shared token (nginx Basic Auth). It is **not
-public** until InfoSec sign-off.
+The closed-pilot shared-token gate (nginx Basic Auth) was **removed after InfoSec
+sign-off**. `https://meno.nsu.ru` is now public; the app's own email/password login
+applies as usual.
+
+**To re-gate** (e.g. a future restricted preview): restore the two `auth_basic`
+directives in `nginx/meno.nsu.ru.conf` (a commented block there shows exactly what),
+create the token, and re-deploy. `scripts/set-gate-token.sh` is kept for this.
 
 ```bash
-# On the server, once (prints the token a single time — copy it):
-sudo ./scripts/set-gate-token.sh
-# Rotate later (e.g. on leak or when someone leaves the group):
-sudo ./scripts/set-gate-token.sh --rotate
-sudo systemctl reload nginx
+sudo ./scripts/set-gate-token.sh        # create the shared token (printed once)
+sudo ./scripts/deploy.sh
 ```
 
-Testers open `https://meno.nsu.ru`, and the browser prompts for credentials:
-enter user `menon` and the shared token. After that the Menon app loads and its
-own email/password login applies as usual.
+**Emergency — close access immediately:** `sudo systemctl stop nginx` (with the app
+ports on loopback, the site then has no public path).
 
-`deploy.sh` is **fail-closed**: it refuses to install the gated vhost if the token
-file is missing, and `nginx -t` would fail too — there is no state where the app is
-served without the gate.
+## Lock down `:9012` (mandatory)
 
-**Emergency — close access immediately:** `sudo systemctl stop nginx` (with `:9012`
-on loopback, the app then has no public path), or rotate the token.
+With the gate removed, the site's **only** public path must be nginx `:443`. While
+Meno-Web's Express binds `0.0.0.0:9012`, anyone can hit `84.237.50.35:9012` directly
+and reach the app past the edge. Bind Express to `127.0.0.1` (`server.js`, default
+host) and restart `pm2 meno-web`; the backend `:9006` already binds `127.0.0.1`.
 
-## Lock down `:9012` (mandatory — right after the gate is verified)
+**Verify before opening up:** if `:9012` is still the current (corporate) access path,
+confirm `https://meno.nsu.ru` serves the app first, then close `:9012` — never before,
+or you cut off current access.
 
-The gate is bypassable while Meno-Web's Express binds `0.0.0.0:9012` (anyone can hit
-`84.237.50.35:9012` directly). Close it by binding Express to `127.0.0.1` (`server.js`,
-default host) and restarting `pm2 meno-web`; the backend `:9006` already binds
-`127.0.0.1`.
-
-**Order matters:** `:9012` is the *current* (corporate) access path and `meno.nsu.ru`
-isn't serving the app yet — so close `:9012` **after** the gated path is confirmed
-working, never before, or you cut off current access. The brief overlap where both
-paths work is no more exposed than today (where `:9012` is already open).
-
-### Rollout order
-
-1. `sudo ./scripts/set-gate-token.sh` (capture the token).
-2. `sudo ./scripts/deploy.sh` — gated `meno.nsu.ru` goes live (the cert is issued over
-   `:80` without disrupting `:9012`).
-3. Verify the gated path: `curl -skI -u menon:TOKEN https://meno.nsu.ru` → 200, and
-   `curl -skI https://meno.nsu.ru` → 401.
-4. **Only now** close the direct port: in Meno-Web bind `127.0.0.1`, `pm2 restart meno-web`.
-5. Final no-bypass check (below).
-
-### Verify nobody can bypass the gate
+### Verify the only public path is nginx :443
 
 ```bash
 # From OUTSIDE the NSU network — these ports must NOT be reachable:
 nc -vz meno.nsu.ru 9012   # expect: refused/timeout
 nc -vz meno.nsu.ru 9006   # expect: refused/timeout
-# Gate works:
-curl -skI https://meno.nsu.ru                 # expect 401
-curl -skI -u menon:THE_TOKEN https://meno.nsu.ru  # expect 200
-# ACME stays open (renewal) and is NOT gated:
-curl -I http://meno.nsu.ru/.well-known/acme-challenge/probe  # expect 404, not 401
-# On the server:
-ss -tlnp | grep -E ':(9012|9006)'   # expect 127.0.0.1 only
+nc -vz meno.nsu.ru 9022   # expect: refused/timeout (vLLM EngineCore — must be loopback too)
+# The public site works:
+curl -skI https://meno.nsu.ru   # expect 200 + valid cert
+# On the server — app ports loopback only:
+ss -tlnp | grep -E ':(9012|9006|9022)'   # expect 127.0.0.1 only
 ```
 
 ## Future optimization: Variant B
