@@ -24,7 +24,7 @@ fi
 # that after Prometheus is already unpacked leaves a half-built stack.
 MISSING=()
 declare -A PKG=(
-    [envsubst]=gettext-base [gpg]=gnupg [curl]=curl
+    [envsubst]=gettext-base [curl]=curl
     [ss]=iproute2 [psql]=postgresql-client [tar]=tar
 )
 for cmd in "${!PKG[@]}"; do
@@ -45,6 +45,7 @@ fi
 # current releases and bump deliberately.
 PROM_VERSION="2.53.2"
 NODE_EXPORTER_VERSION="1.8.2"
+GRAFANA_VERSION="11.6.1"
 case "$(uname -m)" in
     x86_64)  ARCH="linux-amd64" ;;
     aarch64) ARCH="linux-arm64" ;;
@@ -108,14 +109,28 @@ install -m 0755 "$TMP/node_exporter-${NODE_EXPORTER_VERSION}.${ARCH}/node_export
     /usr/local/bin/node_exporter
 
 # ── Grafana ───────────────────────────────────────────────────────────────
-if ! dpkg -s grafana &>/dev/null; then
-    echo "[install] installing Grafana from the official apt repo"
-    install -d /etc/apt/keyrings
-    curl -fsSL https://apt.grafana.com/gpg.key | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
-    echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
-        > /etc/apt/sources.list.d/grafana.list
-    apt-get update -qq
-    apt-get install -y grafana
+# Direct .deb, NOT the apt repo. apt.grafana.com and packages.grafana.com both
+# answer 403 from this host's network ("Sorry, the provided token is not valid"
+# — Grafana's own infrastructure, not a local block page), while
+# dl.grafana.com serves the package normally. Measured on the production host
+# 2026-09-09. The apt route would also have meant a signing key this machine
+# cannot fetch, so there is nothing to fall back to.
+#
+# Trade-off worth stating: no apt repo means `apt upgrade` will not update
+# Grafana. Bumping GRAFANA_VERSION here and re-running is the upgrade path.
+if ! dpkg -s grafana &>/dev/null || \
+   [[ "$(dpkg-query -W -f='${Version}' grafana 2>/dev/null)" != "$GRAFANA_VERSION" ]]; then
+    echo "[install] installing Grafana $GRAFANA_VERSION from dl.grafana.com"
+    deb="grafana_${GRAFANA_VERSION}_amd64.deb"
+    base="https://dl.grafana.com/oss/release"
+    curl -fsSL -o "$TMP/$deb"          "$base/$deb"
+    curl -fsSL -o "$TMP/$deb.sha256"   "$base/$deb.sha256"
+    # The .sha256 file holds the bare digest, so pair it with the filename
+    # ourselves before handing it to sha256sum -c.
+    ( cd "$TMP" && echo "$(cat "$deb.sha256")  $deb" | sha256sum -c - )
+    # Grafana needs adduser/libfontconfig1/musl; -f resolves them from the
+    # distro repos, which are reachable.
+    dpkg -i "$TMP/$deb" || apt-get install -y -f
 fi
 
 if [[ -f /etc/grafana/grafana.ini ]] \
