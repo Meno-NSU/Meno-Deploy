@@ -157,16 +157,24 @@ The Grafana database role can read two content-free views and nothing else.
 `messages.content` is denied at the database level, not by convention, and the
 installer proves it by trying to read it and failing the install if it can.
 
-**No dashboards ship yet.** On a first install Grafana comes up with the two
-datasources wired and zero panels. Build them in the UI — the queries to start
-from are in `docs/superpowers/plans/2026-09-09-monitoring-stack.md`, Task 6 —
-then **Dashboard settings → JSON Model → Copy**, save under
-`monitoring/grafana/dashboards/`, and commit. From then on they are provisioned
-automatically on every install.
+Two dashboards are provisioned automatically:
 
-Hand-writing that JSON in advance would be thousands of lines nobody can review
-and that drift from what is actually drawn, which is why it is deferred rather
-than faked.
+- **Meno — операционные метрики** (12 panels): liveness, in-flight requests,
+  admission saturation, RPS by provider, p50/p95/p99 latency, per-stage
+  latency, errors by code, benchmark runs as their own series, HTTP by route,
+  disk/CPU/memory.
+- **Meno — использование** (5 panels): daily actives, registered vs guests,
+  dialogues per day, messages per dialogue, messages by role.
+
+Every panel query was executed against a live Grafana 11 with a real Prometheus
+and a real PostgreSQL before being committed — all 19 return data. A panel whose
+query silently returns nothing looks identical to one on an idle system, so they
+are verified rather than eyeballed.
+
+To change them: edit in the UI, then **Dashboard settings → JSON Model → Copy**,
+save back over the file in `monitoring/grafana/dashboards/`, and commit. Note the
+datasources have fixed `uid`s (`meno-prometheus`, `meno-postgres`) precisely so
+dashboard JSON stays portable across installs.
 
 ### Alerts notify nobody yet
 
