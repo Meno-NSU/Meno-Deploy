@@ -45,6 +45,19 @@ install -d "$NGINX_SNIPPETS" "$WEBROOT"
 install -m 0644 "$REPO_DIR/nginx/snippets/meno-proxy.conf" "$NGINX_SNIPPETS/meno-proxy.conf"
 install -m 0644 "$REPO_DIR/nginx/snippets/meno-sse.conf"   "$NGINX_SNIPPETS/meno-sse.conf"
 
+# Benchmark token map. The real file is created by scripts/set-bench-token.sh
+# and is never in git; install a no-token placeholder if it is absent, so that
+# $bench_ok is always defined. Referencing an undefined variable would make
+# `nginx -t` fail and block this deploy entirely — and the benchmark endpoint
+# is optional, so its absence must never stop the public site from deploying.
+install -d /etc/nginx/conf.d
+if [[ ! -f /etc/nginx/conf.d/meno-bench-token.conf ]]; then
+    echo "[deploy] no benchmark token configured — installing the no-token placeholder"
+    install -m 0600 -o root -g root \
+        "$REPO_DIR/nginx/conf.d/meno-bench-token.placeholder.conf" \
+        /etc/nginx/conf.d/meno-bench-token.conf
+fi
+
 # 2. First run only: bootstrap HTTP vhost + obtain cert.
 if [[ ! -f "$CERT_LIVE" ]]; then
     echo "[deploy] no cert yet — installing bootstrap vhost and issuing certificate"
