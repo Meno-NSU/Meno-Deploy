@@ -44,7 +44,7 @@
     },
     {
       "type": "stat",
-      "title": "Запросов в полёте",
+      "title": "Пик запросов в полёте за период",
       "gridPos": {
         "h": 4,
         "w": 4,
@@ -58,8 +58,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "meno_chat_in_flight",
-          "legendFormat": "in flight",
+          "expr": "max_over_time(meno_chat_in_flight[$__range])",
+          "legendFormat": "пик",
           "datasource": {
             "type": "prometheus",
             "uid": "meno-prometheus"
@@ -69,11 +69,12 @@
       "fieldConfig": {
         "defaults": {},
         "overrides": []
-      }
+      },
+      "description": "Мгновенное значение почти всегда 0 при редком трафике — скрейп раз в 15 с редко попадает внутрь запроса. Показан максимум за выбранный период."
     },
     {
       "type": "gauge",
-      "title": "Насыщение admission",
+      "title": "Пик насыщения admission за период",
       "gridPos": {
         "h": 4,
         "w": 4,
@@ -87,7 +88,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "meno_admission_active / meno_admission_limit",
+          "expr": "max_over_time((meno_admission_active / meno_admission_limit)[$__range:])",
           "legendFormat": "saturation",
           "datasource": {
             "type": "prometheus",
@@ -115,15 +116,48 @@
           }
         },
         "overrides": []
-      }
+      },
+      "description": "Максимум за период, по той же причине что и панель слева."
+    },
+    {
+      "type": "stat",
+      "title": "Запросов всего за период",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "meno-prometheus"
+      },
+      "description": "Счётчик, а не мгновенное значение: накапливается и не теряется между скрейпами. Если здесь 0, а Бэкенд жив = 1 — запросы действительно не доходят.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(meno_chat_requests_total[$__range]))",
+          "legendFormat": "запросов",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "meno-prometheus"
+          }
+        }
+      ]
     },
     {
       "type": "timeseries",
       "title": "Запросов в секунду по провайдерам",
       "gridPos": {
         "h": 4,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 16,
         "y": 0
       },
       "datasource": {
