@@ -133,11 +133,24 @@ if ! dpkg -s grafana &>/dev/null || \
     dpkg -i "$TMP/$deb" || apt-get install -y -f
 fi
 
-if [[ -f /etc/grafana/grafana.ini ]] \
-   && ! cmp -s "$REPO_DIR/monitoring/grafana.ini" /etc/grafana/grafana.ini; then
-    echo "[install] /etc/grafana/grafana.ini differs from the repo copy — leaving it alone."
+# A plain "differs from the repo copy? leave it alone" guard is WRONG here,
+# unlike for prometheus.yml: the .deb ships its own /etc/grafana/grafana.ini,
+# which of course differs — so on a first install the guard would skip our
+# config entirely and Grafana would come up on its default bind address,
+# meaning ALL interfaces, on a host whose upstream firewall is permissive.
+#
+# Track what WE last wrote instead. Untouched since our last install → safe
+# to update. Changed → a human edited it, leave it alone.
+GRAFANA_INI=/etc/grafana/grafana.ini
+GRAFANA_MARKER=/etc/grafana/.meno-grafana-ini.sha256
+if [[ -f "$GRAFANA_MARKER" ]] \
+   && ! sha256sum -c --status "$GRAFANA_MARKER" 2>/dev/null; then
+    echo "[install] $GRAFANA_INI was edited by hand since our last install — leaving it alone."
+    echo "[install]   to adopt the repo version: rm $GRAFANA_MARKER and re-run."
 else
-    install -m 0640 -o root -g grafana "$REPO_DIR/monitoring/grafana.ini" /etc/grafana/grafana.ini
+    install -m 0640 -o root -g grafana "$REPO_DIR/monitoring/grafana.ini" "$GRAFANA_INI"
+    sha256sum "$GRAFANA_INI" > "$GRAFANA_MARKER"
+    chmod 600 "$GRAFANA_MARKER"
 fi
 install -d /etc/grafana/provisioning/datasources /etc/grafana/provisioning/dashboards \
            /var/lib/grafana/dashboards
@@ -179,8 +192,13 @@ fi
 # ON_ERROR_STOP is not optional here: without it psql exits 0 on a SQL error,
 # so `set -e` never sees a failed migration and the script marches on.
 echo "[install] applying usage views and the Grafana role"
+# Redirect, not -f: with -f the file is opened by the postgres user, which
+# cannot traverse the operator's home directory. The redirect is performed by
+# root before privileges drop, so postgres only ever receives the contents.
+# shellcheck disable=SC2024  # "sudo doesn't affect redirects" is the POINT:
+# root opens the file, postgres only receives the bytes on stdin.
 sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d meno_rag \
-    -f "$REPO_DIR/monitoring/sql/usage_view.sql"
+    < "$REPO_DIR/monitoring/sql/usage_view.sql"
 
 # Double any single quote so a password containing one cannot close the literal
 # (or inject SQL). Quote both halves of the substitution: the backslash form
