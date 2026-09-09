@@ -81,11 +81,19 @@ ports on loopback, the site then has no public path).
 
 `https://meno.nsu.ru/bench/v1` is an OpenAI-compatible path for benchmark runs.
 It returns the full RAG pipeline trace inline and writes nothing to the
-production tables. Without a valid token it answers `404`, so it is
-indistinguishable from a path that does not exist.
+production tables.
+
+Without a valid token the request is handed to Express and gets the SPA —
+byte-identical to any other unknown path, so the endpoint cannot be found by
+probing. A plain `404` would have been the opposite of hiding: Express answers
+`200` + `index.html` for every unmatched path, so a `404` would have been the
+one response shape proving something is there. The same reasoning is why
+`/bench/v1` without the trailing slash is routed explicitly — otherwise nginx
+answers it with a `301`, before any token check can run.
 
 It is **off by default**: until `set-bench-token.sh` runs, `deploy.sh` installs
-a placeholder map and every `/bench/` request 404s. Enable it with:
+a placeholder map and `/bench/v1/...` is served the SPA like any other unknown
+path. Enable it with:
 
 ```bash
 sudo ./scripts/set-bench-token.sh
