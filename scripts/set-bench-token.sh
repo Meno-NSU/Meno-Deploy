@@ -14,7 +14,11 @@
 set -euo pipefail
 
 MAP_FILE=/etc/nginx/conf.d/meno-bench-token.conf
-BACKEND_DIR="${BACKEND_DIR:-$HOME/Meno-Stand/Meno-Stand-RAG-Core}"
+# $HOME is /root under sudo, so it would point the operator at a .env the
+# backend never reads. Resolve the INVOKING user's home instead, and fall back
+# to $HOME only when the script is somehow not run through sudo.
+_invoking_home="$(getent passwd "${SUDO_USER:-$(id -un)}" 2>/dev/null | cut -d: -f6)"
+BACKEND_DIR="${BACKEND_DIR:-${_invoking_home:-$HOME}/Meno-Stand/Meno-Stand-RAG-Core}"
 
 if [[ $EUID -ne 0 ]]; then
     echo "Run with sudo: sudo ./scripts/set-bench-token.sh" >&2
