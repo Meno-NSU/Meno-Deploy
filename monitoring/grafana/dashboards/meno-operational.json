@@ -184,7 +184,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Время ответа: среднее и процентили",
+      "title": "Полное время потока (до последнего токена)",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -239,7 +239,57 @@
         },
         "overrides": []
       },
-      "description": "Среднее считается из sum/count — точно, без интерполяции. Процентили считаются по корзинам гистограммы и интерполируются внутри корзины, поэтому на малом числе запросов p95/p99 завышаются и по сути показывают самый медленный ответ. Если среднее и p50 рядом, а p99 далеко вверху — это почти всегда один долгий ответ на малой выборке, а не деградация."
+      "description": "Меряется от прихода запроса до ПОСЛЕДНЕГО токена, поэтому растёт с длиной ответа, а не с отзывчивостью. Это НЕ то, что чувствует читатель — для этого есть соседняя панель «Время до первого токена». Среднее считается из sum/count точно; процентили интерполируются внутри корзин гистограммы и на малой выборке завышаются, показывая по сути самый медленный ответ."
+    },
+    {
+      "type": "timeseries",
+      "title": "Время до первого токена (что чувствует читатель)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "meno-prometheus"
+      },
+      "description": "Секунды от прихода запроса до первого показанного токена. Именно это число соответствует ощущению «быстро отвечает». Расхождение с полным временем потока слева — нормально и тем больше, чем длиннее ответ.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(meno_chat_time_to_first_token_seconds_sum[5m]) / rate(meno_chat_time_to_first_token_seconds_count[5m])",
+          "legendFormat": "среднее (точное)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "meno-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(meno_chat_time_to_first_token_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "meno-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(meno_chat_time_to_first_token_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "meno-prometheus"
+          }
+        }
+      ]
     },
     {
       "type": "timeseries",
@@ -248,7 +298,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 12
       },
       "datasource": {
         "type": "prometheus",
@@ -279,7 +329,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 12
+        "y": 20
       },
       "datasource": {
         "type": "prometheus",
@@ -310,7 +360,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 20
       },
       "datasource": {
         "type": "prometheus",
@@ -341,7 +391,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 20
+        "y": 28
       },
       "datasource": {
         "type": "prometheus",
@@ -372,7 +422,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 20
+        "y": 28
       },
       "datasource": {
         "type": "prometheus",
@@ -403,7 +453,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 36
       },
       "datasource": {
         "type": "prometheus",
@@ -434,7 +484,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 36
       },
       "datasource": {
         "type": "prometheus",
