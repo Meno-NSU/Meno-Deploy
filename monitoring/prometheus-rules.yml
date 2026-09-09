@@ -1,0 +1,46 @@
+groups:
+  - name: meno
+    rules:
+      - alert: BackendDown
+        expr: up{job="meno-rag-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Бэкенд не отвечает на скрейп более 2 минут"
+
+      - alert: ErrorRateHigh
+        expr: sum(rate(meno_errors_total[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ошибок больше 0.5/с в течение 5 минут"
+
+      # 60s is tuned for a RAG pipeline with generation, not for an ordinary
+      # web service. Revisit against the observed p95 after the first week:
+      # an alert that fires constantly stops being read, which is worse than
+      # having no alert at all.
+      - alert: LatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(meno_chat_request_seconds_bucket[5m]))) > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 времени ответа выше 60 с"
+
+      - alert: AdmissionSaturated
+        expr: meno_admission_active / meno_admission_limit > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Пул admission заполнен более чем на 80%"
+
+      - alert: DiskFilling
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Свободного места на / меньше 15%"

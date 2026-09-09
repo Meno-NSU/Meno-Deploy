@@ -66,6 +66,18 @@ if ! grep -q 'bench_ok' "$NGINX_CONFD/meno-bench-token.conf" 2>/dev/null; then
         "$NGINX_CONFD/meno-bench-token.conf"
 fi
 
+# Grafana Basic Auth file. Same fail-open reasoning as the benchmark map: a
+# missing auth_basic_user_file does not fail `nginx -t`, it 500s at request
+# time, and refusing to deploy without it would let an unconfigured monitoring
+# stack block the PUBLIC site. The placeholder has `*` in the password field,
+# which no credential can match, so /grafana/ answers 401 until it is set up.
+if [[ ! -s /etc/nginx/.meno_grafana_htpasswd ]]; then
+    echo "[deploy] no Grafana credential — installing the locked placeholder"
+    install -m 0640 -o root -g www-data \
+        "$REPO_DIR/nginx/meno_grafana_htpasswd.placeholder" \
+        /etc/nginx/.meno_grafana_htpasswd
+fi
+
 # The whole fail-open design rests on the distro including conf.d/*.conf at http
 # level. True on Debian/Ubuntu, but state it rather than assume it silently.
 if ! grep -qE 'include\s+.*conf\.d/\*\.conf' /etc/nginx/nginx.conf; then
