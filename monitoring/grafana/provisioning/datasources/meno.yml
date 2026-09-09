@@ -1,0 +1,21 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9090
+    isDefault: true
+
+  - name: PostgreSQL (usage)
+    type: postgres
+    access: proxy
+    url: 127.0.0.1:5432
+    database: meno_rag
+    user: meno_grafana
+    secureJsonData:
+      # Rendered by scripts/install-monitoring.sh from .env — this file is the
+      # template, the installed copy is 0640 root:grafana.
+      password: ${GRAFANA_DB_PASSWORD}
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1500

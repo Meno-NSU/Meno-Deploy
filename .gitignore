@@ -12,3 +12,7 @@
 # Never commit the real benchmark token map (the real one lives at
 # /etc/nginx/conf.d/meno-bench-token.conf and holds the token in clear text)
 meno-bench-token.conf
+
+# Never commit the real Grafana htpasswd (the real one lives at
+# /etc/nginx/.meno_grafana_htpasswd)
+.meno_grafana_htpasswd

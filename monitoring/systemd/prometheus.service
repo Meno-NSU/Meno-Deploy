@@ -1,0 +1,29 @@
+[Unit]
+Description=Prometheus time-series database
+Documentation=https://prometheus.io/docs/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+# --web.listen-address on loopback: Prometheus has no authentication of its
+# own, and its UI exposes every series plus the scrape configuration.
+# Retention is the whole point of installing it — the backend's own registry
+# is in-memory and resets on every restart.
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus \
+  --storage.tsdb.retention.time=90d \
+  --web.listen-address=127.0.0.1:9090
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/prometheus
+
+[Install]
+WantedBy=multi-user.target

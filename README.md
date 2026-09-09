@@ -123,6 +123,68 @@ Raw Prometheus metrics are also reachable at `/bench/metrics` behind the same
 token, for ad-hoc debugging. Routine collection does not use it — Prometheus
 scrapes the backend over the loopback.
 
+## Monitoring (Prometheus + Grafana)
+
+The backend already exposes a full Prometheus registry on `/metrics`, but that
+registry lives in memory and resets on every restart. This stack turns it into
+history.
+
+```bash
+# once, in .env:  GRAFANA_DB_PASSWORD=$(openssl rand -base64 24)
+sudo ./scripts/install-monitoring.sh
+sudo ./scripts/set-grafana-token.sh
+sudo ./scripts/deploy.sh
+```
+
+Then `https://meno.nsu.ru/grafana/` — nginx Basic Auth first, Grafana's own
+login second.
+
+**Everything binds loopback only.** Prometheus `:9090`, node_exporter `:9100`
+and Grafana `:3000` are unreachable from outside; nginx is the only way in.
+The installer verifies this and **exits non-zero rather than reporting success**
+if any of the three bound to all interfaces — that mistake previously put the
+vLLM engine on the public internet, and the upstream firewall will not save you.
+
+Two datasources:
+
+- **Prometheus** — load, latency percentiles, per-stage timings, errors,
+  admission saturation, host CPU/RAM/disk. 90 days of retention (~1–2 GB).
+- **PostgreSQL** — active users per day, guests vs registered, dialogues,
+  messages per dialogue. This one has history *retroactively*, since the data
+  was being written all along; Prometheus only starts counting at install.
+
+The Grafana database role can read two content-free views and nothing else.
+`messages.content` is denied at the database level, not by convention, and the
+installer proves it by trying to read it and failing the install if it can.
+
+**No dashboards ship yet.** On a first install Grafana comes up with the two
+datasources wired and zero panels. Build them in the UI — the queries to start
+from are in `docs/superpowers/plans/2026-09-09-monitoring-stack.md`, Task 6 —
+then **Dashboard settings → JSON Model → Copy**, save under
+`monitoring/grafana/dashboards/`, and commit. From then on they are provisioned
+automatically on every install.
+
+Hand-writing that JSON in advance would be thousands of lines nobody can review
+and that drift from what is actually drawn, which is why it is deferred rather
+than faked.
+
+### Alerts notify nobody yet
+
+`monitoring/prometheus-rules.yml` defines five rules, but there is **no
+Alertmanager and no `alerting:` block** in `prometheus.yml`. A firing rule is
+visible in Prometheus's own UI and on a Grafana panel, and nowhere else. Nobody
+gets paged, emailed or messaged.
+
+Read that as "we can see these conditions on a dashboard", not "we will be told
+about them". Routing them somewhere real — Alertmanager, or Grafana unified
+alerting with a contact point — is the natural next step and needs a decision
+about the destination first.
+
+Thresholds are starting points. The p95 latency alert is set at 60s, which suits
+a RAG pipeline with generation rather than an ordinary web service — **revisit
+it against the observed p95 after the first week.** An alert that fires
+constantly stops being read, which is worse than no alert.
+
 ## Lock down `:9012` (mandatory)
 
 With the gate removed, the site's **only** public path must be nginx `:443`. While

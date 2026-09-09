@@ -1,0 +1,27 @@
+# Prometheus for the Meno RAG backend.
+# The backend's metrics registry is in-memory and resets on restart; this is
+# what turns it into history that survives one.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  # The RAG backend. Loopback: the scrape never crosses the public edge, so
+  # /metrics needs no exposure and no authentication.
+  - job_name: meno-rag-api
+    static_configs:
+      - targets: ['127.0.0.1:9006']
+
+  # Host: CPU, RAM, disk. A full disk is the most common cause of an outage
+  # here and no application metric would show it.
+  - job_name: node
+    static_configs:
+      - targets: ['127.0.0.1:9100']
+
+  # Prometheus itself, so a sick scraper is visible.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['127.0.0.1:9090']
