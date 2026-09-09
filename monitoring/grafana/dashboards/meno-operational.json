@@ -184,7 +184,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Время ответа: p50 / p95 / p99",
+      "title": "Время ответа: среднее и процентили",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -196,6 +196,15 @@
         "uid": "meno-prometheus"
       },
       "targets": [
+        {
+          "refId": "D",
+          "expr": "rate(meno_chat_request_seconds_sum[5m]) / rate(meno_chat_request_seconds_count[5m])",
+          "legendFormat": "среднее (точное)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "meno-prometheus"
+          }
+        },
         {
           "refId": "A",
           "expr": "histogram_quantile(0.50, sum by (le) (rate(meno_chat_request_seconds_bucket[5m])))",
@@ -229,7 +238,8 @@
           "unit": "s"
         },
         "overrides": []
-      }
+      },
+      "description": "Среднее считается из sum/count — точно, без интерполяции. Процентили считаются по корзинам гистограммы и интерполируются внутри корзины, поэтому на малом числе запросов p95/p99 завышаются и по сути показывают самый медленный ответ. Если среднее и p50 рядом, а p99 далеко вверху — это почти всегда один долгий ответ на малой выборке, а не деградация."
     },
     {
       "type": "timeseries",
