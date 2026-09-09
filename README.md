@@ -157,16 +157,33 @@ The Grafana database role can read two content-free views and nothing else.
 `messages.content` is denied at the database level, not by convention, and the
 installer proves it by trying to read it and failing the install if it can.
 
-Dashboards are not committed as hand-written JSON — build them in the UI, then
-**Dashboard settings → JSON Model → Copy**, save under
+**No dashboards ship yet.** On a first install Grafana comes up with the two
+datasources wired and zero panels. Build them in the UI — the queries to start
+from are in `docs/superpowers/plans/2026-09-09-monitoring-stack.md`, Task 6 —
+then **Dashboard settings → JSON Model → Copy**, save under
 `monitoring/grafana/dashboards/`, and commit. From then on they are provisioned
-automatically.
+automatically on every install.
 
-Alert thresholds in `monitoring/prometheus-rules.yml` are starting points. The
-p95 latency alert is set at 60s, which suits a RAG pipeline with generation
-rather than an ordinary web service — **revisit it against the observed p95
-after the first week.** An alert that fires constantly stops being read, which
-is worse than no alert.
+Hand-writing that JSON in advance would be thousands of lines nobody can review
+and that drift from what is actually drawn, which is why it is deferred rather
+than faked.
+
+### Alerts notify nobody yet
+
+`monitoring/prometheus-rules.yml` defines five rules, but there is **no
+Alertmanager and no `alerting:` block** in `prometheus.yml`. A firing rule is
+visible in Prometheus's own UI and on a Grafana panel, and nowhere else. Nobody
+gets paged, emailed or messaged.
+
+Read that as "we can see these conditions on a dashboard", not "we will be told
+about them". Routing them somewhere real — Alertmanager, or Grafana unified
+alerting with a contact point — is the natural next step and needs a decision
+about the destination first.
+
+Thresholds are starting points. The p95 latency alert is set at 60s, which suits
+a RAG pipeline with generation rather than an ordinary web service — **revisit
+it against the observed p95 after the first week.** An alert that fires
+constantly stops being read, which is worse than no alert.
 
 ## Lock down `:9012` (mandatory)
 

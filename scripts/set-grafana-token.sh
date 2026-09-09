@@ -42,9 +42,10 @@ printf '%s' "$TOKEN" | htpasswd -B -c -i "$HTPASSWD" "$GRAFANA_GATE_USER"
 chown root:www-data "$HTPASSWD"
 chmod 640 "$HTPASSWD"
 
-nginx -t
-systemctl reload nginx
-
+# Print BEFORE reloading. The token is shown once and only once; if an
+# unrelated pre-existing config error made `nginx -t` fail here, `set -e` would
+# abort with the credential already written and never displayed — and the guard
+# above would then refuse a plain re-run.
 echo "[set-grafana-token] wrote $HTPASSWD for user '$GRAFANA_GATE_USER'"
 echo
 echo "  ===== GRAFANA ACCESS (shown once) ====="
@@ -54,3 +55,8 @@ echo "  token: $TOKEN"
 echo "  ======================================="
 echo
 echo "This is the OUTER gate only — Grafana asks for its own login after it."
+echo
+
+nginx -t
+systemctl reload nginx
+echo "[set-grafana-token] nginx reloaded"

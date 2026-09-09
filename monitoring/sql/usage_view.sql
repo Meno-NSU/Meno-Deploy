@@ -1,4 +1,9 @@
--- Usage metrics for Grafana. Idempotent: safe to re-run.
+-- Usage metrics for Grafana. Idempotent: safe to re-run as written.
+--
+-- The DROP before each CREATE is deliberate: CREATE OR REPLACE VIEW cannot
+-- remove a column, so editing a view to expose LESS would fail on an existing
+-- database ("cannot drop columns from view") — exactly the direction of change
+-- this file should always make easy.
 --
 -- Grafana reads product metrics (how many people, how many dialogues) straight
 -- from PostgreSQL rather than through a bespoke API endpoint. History is then
@@ -19,7 +24,8 @@
 -- installer grants LOGIN with a password piped over stdin, so the secret
 -- reaches neither git nor the process list.
 
-CREATE OR REPLACE VIEW usage_conversations AS
+DROP VIEW IF EXISTS usage_conversations;
+CREATE VIEW usage_conversations AS
     SELECT
         id,
         user_id,
@@ -27,7 +33,8 @@ CREATE OR REPLACE VIEW usage_conversations AS
         created_at
     FROM conversations;
 
-CREATE OR REPLACE VIEW usage_messages AS
+DROP VIEW IF EXISTS usage_messages;
+CREATE VIEW usage_messages AS
     SELECT
         id,
         conversation_id,
@@ -46,9 +53,11 @@ BEGIN
 END
 $$;
 
--- Explicitly take everything away first: PUBLIC holds USAGE on schema public,
--- so "we never granted it" is not the same as "it cannot read it". Revoking
--- and then granting exactly two views is what makes the boundary checkable.
+-- Revoke first, then grant exactly two views. A freshly created role has no
+-- table privileges anyway, so this is belt-and-braces for a role that already
+-- existed and had been granted something by hand. The installer does not trust
+-- this reasoning: it enumerates what the role can actually read and fails if it
+-- is anything other than these two views.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM meno_grafana;
 GRANT CONNECT ON DATABASE meno_rag TO meno_grafana;
 GRANT USAGE ON SCHEMA public TO meno_grafana;

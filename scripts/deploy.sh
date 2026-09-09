@@ -73,10 +73,19 @@ fi
 # which no credential can match, so /grafana/ answers 401 until it is set up.
 if [[ ! -s /etc/nginx/.meno_grafana_htpasswd ]]; then
     echo "[deploy] no Grafana credential — installing the locked placeholder"
-    install -m 0640 -o root -g www-data \
+    # root:root, not root:www-data: `install -g <missing group>` returns 1 and
+    # under `set -e` would abort deploy.sh BEFORE the production vhost is
+    # installed. The placeholder holds no secret, so it needs no group at all.
+    # set-grafana-token.sh sets root:www-data on the real file, which workers
+    # do need to read.
+    install -m 0644 -o root -g root \
         "$REPO_DIR/nginx/meno_grafana_htpasswd.placeholder" \
         /etc/nginx/.meno_grafana_htpasswd
 fi
+
+# Websocket upgrade map for the Grafana location. No secret, so it is installed
+# unconditionally from the repo.
+install -m 0644 "$REPO_DIR/nginx/conf.d/meno-websocket.conf" "$NGINX_CONFD/meno-websocket.conf"
 
 # The whole fail-open design rests on the distro including conf.d/*.conf at http
 # level. True on Debian/Ubuntu, but state it rather than assume it silently.

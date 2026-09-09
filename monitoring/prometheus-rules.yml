@@ -1,3 +1,9 @@
+# NOTE: these rules currently notify NOBODY. prometheus.yml has no `alerting:`
+# block and no Alertmanager is installed, so a firing alert is visible only in
+# Prometheus's own UI and on a Grafana panel. Routing them to a real destination
+# (Alertmanager, or Grafana unified alerting with a contact point) is a separate
+# piece of work — see the README. Do not read "we have alerts" as "we will be
+# told".
 groups:
   - name: meno
     rules:
@@ -29,16 +35,25 @@ groups:
         annotations:
           summary: "p95 времени ответа выше 60 с"
 
+      # The `limit > 0` guard is load-bearing: MAX_CONCURRENT_CHATS=0 is a
+      # documented way to disable admission control, and 0 as a divisor gives
+      # +Inf > 0.8 — the alert would then fire whenever there is any traffic
+      # and clear when idle, exactly inverted.
       - alert: AdmissionSaturated
-        expr: meno_admission_active / meno_admission_limit > 0.8
+        expr: meno_admission_limit > 0 and meno_admission_active / meno_admission_limit > 0.8
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "Пул admission заполнен более чем на 80%"
 
+      # Every real filesystem, not just "/": /var, /var/lib/postgresql and
+      # /var/lib/prometheus are plausible separate mounts here, and a full disk
+      # on any of them is an outage that pinning mountpoint="/" would hide.
       - alert: DiskFilling
-        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}
+          / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"} < 0.15
         for: 10m
         labels:
           severity: critical
