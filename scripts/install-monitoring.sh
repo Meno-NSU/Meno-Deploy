@@ -19,6 +19,23 @@ if [[ -f "$REPO_DIR/.env" ]]; then
 fi
 : "${GRAFANA_DB_PASSWORD:?GRAFANA_DB_PASSWORD must be set in .env}"
 
+# Fail on the first line rather than halfway through. envsubst (gettext-base)
+# and gpg (gnupg) are routinely absent on a minimal server install, and hitting
+# that after Prometheus is already unpacked leaves a half-built stack.
+MISSING=()
+declare -A PKG=(
+    [envsubst]=gettext-base [gpg]=gnupg [curl]=curl
+    [ss]=iproute2 [psql]=postgresql-client [tar]=tar
+)
+for cmd in "${!PKG[@]}"; do
+    command -v "$cmd" &>/dev/null || MISSING+=("${PKG[$cmd]}")
+done
+if (( ${#MISSING[@]} )); then
+    echo "Missing required commands. Install them first:" >&2
+    printf '  sudo apt-get install -y %s\n' "$(printf '%s ' "${MISSING[@]}" | xargs -n99 echo)" >&2
+    exit 1
+fi
+
 if [[ $EUID -ne 0 ]]; then
     echo "Run with sudo: sudo ./scripts/install-monitoring.sh" >&2
     exit 1
