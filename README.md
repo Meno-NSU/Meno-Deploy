@@ -77,6 +77,52 @@ sudo ./scripts/deploy.sh
 **Emergency — close access immediately:** `sudo systemctl stop nginx` (with the app
 ports on loopback, the site then has no public path).
 
+## Benchmark endpoint (developers only)
+
+`https://meno.nsu.ru/bench/v1` is an OpenAI-compatible path for benchmark runs.
+It returns the full RAG pipeline trace inline and writes nothing to the
+production tables.
+
+Without a valid token the request is handed to Express and gets the SPA —
+byte-identical to any other unknown path, so the endpoint cannot be found by
+probing. A plain `404` would have been the opposite of hiding: Express answers
+`200` + `index.html` for every unmatched path, so a `404` would have been the
+one response shape proving something is there. The same reasoning is why
+`/bench/v1` without the trailing slash is routed explicitly — otherwise nginx
+answers it with a `301`, before any token check can run.
+
+It is **off by default**: until `set-bench-token.sh` runs, `deploy.sh` installs
+a placeholder map and `/bench/v1/...` is served the SPA like any other unknown
+path. Enable it with:
+
+```bash
+sudo ./scripts/set-bench-token.sh
+```
+
+The script prints the token once and tells you to put the same value in the
+backend's `.env` as `BENCH_API_TOKEN`, then restart the backend. **Both sides
+must carry it.** nginx alone decides who gets through; the backend decides what
+they get — with the token missing on the backend side, a request that passed
+nginx is served as an ordinary one: no trace, and every question written to the
+production tables.
+
+Use it with any OpenAI client, no custom HTTP needed:
+
+```python
+client = OpenAI(base_url="https://meno.nsu.ru/bench/v1", api_key="<token>")
+```
+
+A bench response carries `X-Bench-Mode: 1`. **Assert on that header before a
+long run** — its absence means the token did not match and you are writing to
+production.
+
+Rotate with `sudo ./scripts/set-bench-token.sh --rotate`, then update the
+backend `.env` and restart it.
+
+Raw Prometheus metrics are also reachable at `/bench/metrics` behind the same
+token, for ad-hoc debugging. Routine collection does not use it — Prometheus
+scrapes the backend over the loopback.
+
 ## Lock down `:9012` (mandatory)
 
 With the gate removed, the site's **only** public path must be nginx `:443`. While

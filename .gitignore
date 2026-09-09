@@ -8,3 +8,7 @@
 # Never commit an access-token file (the real one lives at /etc/nginx/.meno_htpasswd)
 *.htpasswd
 .meno_htpasswd
+
+# Never commit the real benchmark token map (the real one lives at
+# /etc/nginx/conf.d/meno-bench-token.conf and holds the token in clear text)
+meno-bench-token.conf
