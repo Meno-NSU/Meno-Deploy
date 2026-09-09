@@ -1,0 +1,167 @@
+{
+  "uid": "meno-usage",
+  "title": "Meno — использование",
+  "tags": [
+    "meno"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Активные в день (пользователи + гости)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "meno-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "\nSELECT date_trunc('day', created_at) AS time,\n       count(DISTINCT coalesce(user_id, guest_session_id)) AS \"активные\"\nFROM usage_conversations\nWHERE $__timeFilter(created_at)\nGROUP BY 1 ORDER BY 1;",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": {
+            "type": "postgres",
+            "uid": "meno-postgres"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Зарегистрированные против гостей",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "meno-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "\nSELECT date_trunc('day', created_at) AS time,\n       count(DISTINCT user_id)          AS \"зарегистрированные\",\n       count(DISTINCT guest_session_id) AS \"гости\"\nFROM usage_conversations\nWHERE $__timeFilter(created_at)\nGROUP BY 1 ORDER BY 1;",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": {
+            "type": "postgres",
+            "uid": "meno-postgres"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Диалогов в день",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "meno-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "\nSELECT date_trunc('day', created_at) AS time, count(*) AS \"диалоги\"\nFROM usage_conversations\nWHERE $__timeFilter(created_at)\nGROUP BY 1 ORDER BY 1;",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": {
+            "type": "postgres",
+            "uid": "meno-postgres"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Сообщений на диалог",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "meno-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "\nSELECT date_trunc('day', c.created_at) AS time,\n       count(m.id)::float / greatest(count(DISTINCT c.id), 1) AS \"сообщений на диалог\"\nFROM usage_conversations c\nLEFT JOIN usage_messages m ON m.conversation_id = c.id\nWHERE $__timeFilter(c.created_at)\nGROUP BY 1 ORDER BY 1;",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": {
+            "type": "postgres",
+            "uid": "meno-postgres"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Сообщений в день по роли",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "meno-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "\nSELECT date_trunc('day', created_at) AS time, role, count(*) AS count\nFROM usage_messages\nWHERE $__timeFilter(created_at)\nGROUP BY 1, 2 ORDER BY 1;",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": {
+            "type": "postgres",
+            "uid": "meno-postgres"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}
