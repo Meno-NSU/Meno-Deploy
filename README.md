@@ -155,24 +155,15 @@ Qdrant должны быть совместимы. Core проверяет на�
 ./scripts/compose.sh --gpu build core
 ./scripts/compose.sh --gpu up -d postgres redis qdrant llm embedder reranker
 ./scripts/compose.sh --gpu run --rm --no-deps --user 0 \
-  -e EMBEDDER_URL=http://embedder:8000/v1 \
   -v /absolute/path/knowledge:/app/data \
-  -w /app/code core python prepare_graph_index.py \
-  -i /app/data/chunked_texts_about_nsu_with_metadata_and_scores.jsonl \
-  -r /app/data/chunk_mapping_to_texts.json \
-  -o /app/data/knowledge/ragu_graph -e BAAI/bge-m3 \
-  --embedder_url http://embedder:8000/v1 --embedder_key YOUR_MODEL_API_KEY \
-  --llm bond005/meno-lite-0.2 --url http://llm:8000/v1 --key YOUR_MODEL_API_KEY \
-  --qdrant_location http://qdrant:6333 \
-  --chunk_header title --chunk_header_sources base,news \
-  -a /app/data/knowledge/abbreviations.json
+  core python /app/scripts/index_graph.py \
+  --chunk_header title --chunk_header_sources base,news
 ```
 
 Перед этим дождитесь здорового состояния моделей. Каталог для сборки должен
 быть отдельным от используемой production-базы: индексирование записывает файлы
-и коллекции. Сделайте итоговые файлы доступными для чтения UID 10001. Не кладите
-ключи в историю команд: для постоянной эксплуатации используйте скрипт
-индексирования, читающий значения из переменных окружения.
+и коллекции. Сделайте итоговые файлы доступными для чтения UID 10001. Скрипт читает URL и ключи из настроек core; ключи передаются дочернему процессу
+через окружение и не включаются в аргументы команды.
 
 ## Запуск и HTTPS
 
@@ -243,9 +234,9 @@ Prometheus сохраняет метрики 90 дней, Grafana доступн
 входа. Пароль администратора применяется при первом создании тома Grafana.
 Гостевой доступ и самостоятельная регистрация отключены. PostgreSQL-роль
 Grafana читает только две агрегируемые проекции; скрипт проверяет, что доступ к
-`messages.content` запрещён. Дашборды сохранены из прежнего деплоя. Панели
-host CPU/RAM/disk потребуют отдельного node_exporter и пока не получают данных;
-сбор метрик приложения работает через `core:9006/metrics`. Правила Prometheus
+`messages.content` запрещён. Дашборды сохранены из прежнего деплоя. Контейнер node_exporter собирает метрики CPU/RAM/disk целевого Linux-сервера
+через подключение его файловой системы только для чтения. Сбор метрик
+приложения работает через `core:9006/metrics`. Правила Prometheus
 сохранены, отправка уведомлений не настроена.
 
 ## Проверки и возврат

@@ -1,4 +1,12 @@
 services:
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    command: [--path.rootfs=/host]
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks: [meno]
+    restart: unless-stopped
   prometheus:
     image: prom/prometheus:v3.2.1
     command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=90d]
