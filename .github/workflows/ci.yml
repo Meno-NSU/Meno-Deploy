@@ -1,0 +1,19 @@
+name: Container deployment
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: python3 -m unittest discover -s tests -v
+      - name: Validate nginx configuration
+        run: |
+          docker run --rm \
+            --add-host core:127.0.0.1 --add-host web:127.0.0.1 \
+            -e SERVER_NAME=meno.example -e 'NGINX_ENVSUBST_FILTER=^SERVER_NAME$' \
+            -v "$PWD/docker/nginx/http.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+            -v "$PWD/docker/nginx/routes.conf:/etc/nginx/meno/routes.conf:ro" \
+            -v "$PWD/docker/nginx/bench.conf:/etc/nginx/meno/bench.conf:ro" \
+            nginx:1.28.0-alpine nginx -t

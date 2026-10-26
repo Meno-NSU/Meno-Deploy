@@ -16,3 +16,8 @@ meno-bench-token.conf
 # Never commit the real Grafana htpasswd (the real one lives at
 # /etc/nginx/.meno_grafana_htpasswd)
 .meno_grafana_htpasswd
+
+.env.core
+state/
+backups/
+__pycache__/

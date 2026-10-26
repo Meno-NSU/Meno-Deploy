@@ -1,0 +1,143 @@
+name: meno
+x-core: &core
+  image: ${CORE_IMAGE:-meno-ragu-core:local}
+  build:
+    context: ${CORE_SOURCE_DIR:-../meno_ragu_stand}
+  env_file:
+    - path: ./.env.core
+      required: true
+  environment: &core-environment
+    APP_ENV: production
+    APP_HOST: 0.0.0.0
+    APP_PORT: "9006"
+    DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://meno:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/meno}
+    REDIS_URL: redis://redis:6379/0
+    STAND_RESOURCES_DIR: /app/data
+    QDRANT_URL: http://qdrant:6333
+    LOG_CONTENT_PREVIEWS: "false"
+    QA_FEWSHOTS_ENABLED: "false"
+  volumes:
+    - type: bind
+      source: ${KNOWLEDGE_DIR:-../meno_ragu_stand/data}
+      target: /app/data
+      read_only: true
+      bind:
+        create_host_path: false
+    - core-cache:/app/var
+  networks: [meno]
+  init: true
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 20m
+      max-file: "5"
+services:
+  postgres:
+    image: postgres:16.6-bookworm
+    environment:
+      POSTGRES_DB: meno
+      POSTGRES_USER: meno
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U meno -d meno']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [meno]
+    restart: unless-stopped
+    logging: *logging
+  redis:
+    image: redis:7.4.2-alpine
+    command: [redis-server, --appendonly, "yes"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [meno]
+    restart: unless-stopped
+    logging: *logging
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+    volumes: [qdrant-data:/qdrant/storage]
+    networks: [meno]
+    restart: unless-stopped
+    logging: *logging
+  migrate:
+    <<: *core
+    command: [meno-rag-migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+  core:
+    <<: *core
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9006/readyz', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+    restart: unless-stopped
+  web:
+    image: ${WEB_IMAGE:-meno-web:local}
+    build:
+      context: ${WEB_SOURCE_DIR:-../Meno-Web}
+      dockerfile: ${WEB_DOCKERFILE:-../Meno-Deploy/docker/web.Dockerfile}
+    environment:
+      HOST: 0.0.0.0
+      PORT: "9012"
+      BACKEND_URL: http://core:9006
+    depends_on:
+      core:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:9012/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [meno]
+    restart: unless-stopped
+    init: true
+    logging: *logging
+  edge:
+    image: nginx:1.28.0-alpine
+    environment:
+      SERVER_NAME: ${SERVER_NAME:-meno.nsu.ru}
+      NGINX_ENVSUBST_FILTER: ^SERVER_NAME$
+    volumes:
+      - ./docker/nginx/http.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./docker/nginx/routes.conf:/etc/nginx/meno/routes.conf:ro
+      - ./docker/nginx/bench.conf:/etc/nginx/meno/bench.conf:ro
+      - acme-webroot:/var/www/certbot:ro
+    ports: ["${HTTP_BIND:-0.0.0.0}:80:80"]
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [meno]
+    restart: unless-stopped
+    logging: *logging
+  certbot:
+    image: certbot/certbot:v3.3.0
+    profiles: [tools]
+    volumes:
+      - acme-webroot:/var/www/certbot
+      - ${LETSENCRYPT_DIR:-./state/letsencrypt}:/etc/letsencrypt
+    networks: [meno]
+networks:
+  meno:
+volumes:
+  postgres-data:
+  redis-data:
+  qdrant-data:
+  core-cache:
+  acme-webroot:

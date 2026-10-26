@@ -1,0 +1,6 @@
+services:
+  edge:
+    volumes:
+      - ./docker/nginx/tls.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${LETSENCRYPT_DIR:-./state/letsencrypt}:/etc/letsencrypt:ro
+    ports: ["${HTTPS_BIND:-0.0.0.0}:443:443"]

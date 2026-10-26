@@ -1,0 +1,9 @@
+map $http_upgrade $connection_upgrade { default upgrade; "" close; }
+include /etc/nginx/meno/bench.conf;
+server {
+    listen 80;
+    server_name ${SERVER_NAME};
+    client_max_body_size 25m;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    include /etc/nginx/meno/routes.conf;
+}

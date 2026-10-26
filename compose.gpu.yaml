@@ -1,0 +1,55 @@
+x-model: &model
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.0}
+  volumes: [model-cache:/root/.cache/huggingface]
+  environment:
+    HF_TOKEN: ${HF_TOKEN:-}
+  shm_size: 8gb
+  networks: [meno]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: 20m, max-file: "5"}
+  healthcheck:
+    test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+    interval: 15s
+    timeout: 10s
+    retries: 40
+    start_period: 300s
+services:
+  llm:
+    <<: *model
+    command: [--model, "${LLM_MODEL:-bond005/meno-lite-0.2}", --host, 0.0.0.0, --port, "8000", --gpu-memory-utilization, "${LLM_GPU_MEMORY:-0.55}", --max-model-len, "${LLM_MAX_MODEL_LEN:-32768}", --api-key, "${MODEL_API_KEY:?Set MODEL_API_KEY}"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["${LLM_GPU_ID:-0}"], capabilities: [gpu]}]
+  embedder:
+    <<: *model
+    command: [--model, BAAI/bge-m3, --runner, pooling, --host, 0.0.0.0, --port, "8000", --gpu-memory-utilization, "${EMBEDDER_GPU_MEMORY:-0.15}", --max-model-len, "8192", --api-key, "${MODEL_API_KEY:?Set MODEL_API_KEY}"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["${EMBEDDER_GPU_ID:-0}"], capabilities: [gpu]}]
+  reranker:
+    <<: *model
+    command: [--model, BAAI/bge-reranker-v2-m3, --runner, pooling, --host, 0.0.0.0, --port, "8000", --gpu-memory-utilization, "${RERANKER_GPU_MEMORY:-0.15}", --max-model-len, "8192", --api-key, "${MODEL_API_KEY:?Set MODEL_API_KEY}"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["${RERANKER_GPU_ID:-0}"], capabilities: [gpu]}]
+  core:
+    environment:
+      VLLM_ENDPOINTS: http://llm:8000${EVEREST_ENDPOINT:+,}${EVEREST_ENDPOINT:-}
+      OPENAI_API_KEY: ${MODEL_API_KEY:?Set MODEL_API_KEY}
+      DEFAULT_MODEL: ${LLM_MODEL:-bond005/meno-lite-0.2}
+      RAG_REWRITE_RERANK_MODEL: ${LLM_MODEL:-bond005/meno-lite-0.2}
+      EMBEDDER_URL: http://embedder:8000/v1
+      EMBEDDER_API_KEY: ${MODEL_API_KEY:?Set MODEL_API_KEY}
+      ENGINE_RERANKER_URL: http://reranker:8000/v1
+      ENGINE_RERANKER_API_KEY: ${MODEL_API_KEY:?Set MODEL_API_KEY}
+    depends_on:
+      llm: {condition: service_healthy}
+      embedder: {condition: service_healthy}
+      reranker: {condition: service_healthy}
+volumes:
+  model-cache:
