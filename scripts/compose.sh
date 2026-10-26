@@ -13,6 +13,7 @@ while [[ $# -gt 0 ]]; do
         --tls) files+=(-f "$repo_root/compose.tls.yaml"); shift ;;
         --bench) files+=(-f "$repo_root/compose.bench.yaml"); shift ;;
         --monitoring) files+=(-f "$repo_root/compose.monitoring.yaml"); shift ;;
+        --indexing) files+=(-f "$repo_root/compose.indexing.yaml"); shift ;;
         *) break ;;
     esac
 done

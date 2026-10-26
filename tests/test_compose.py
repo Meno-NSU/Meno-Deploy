@@ -23,11 +23,17 @@ class ComposeTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_all_overlay_combinations(self):
-        for flags in itertools.product([False, True], repeat=4):
-            overlays = [name for name, enabled in zip(('gpu','tls','monitoring','bench'), flags) if enabled]
+        for flags in itertools.product([False, True], repeat=5):
+            overlays = [name for name, enabled in zip(('gpu','tls','monitoring','bench','indexing'), flags) if enabled]
             with self.subTest(overlays=overlays):
                 services = self.config(overlays)['services']
                 for name, service in services.items():
+                    if name == 'qdrant' and 'indexing' in overlays:
+                        self.assertEqual(len(service['ports']), 1)
+                        self.assertEqual(service['ports'][0]['host_ip'], '127.0.0.1')
+                        self.assertEqual(int(service['ports'][0]['published']), 6333)
+                        self.assertEqual(service['ports'][0]['target'], 6333)
+                        continue
                     if name != 'edge':
                         self.assertFalse(service.get('ports'), name)
                 self.assertEqual(services['web']['environment']['BACKEND_URL'], 'http://core:9006')
