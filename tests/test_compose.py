@@ -67,9 +67,41 @@ class ComposeTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), first)
             self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
             settings = dict(line.split('=', 1) for line in first.decode().splitlines())
-            for name in ('AUTH_JWT_SECRET', 'BACKEND_POSTGRES_PASSWORD'):
+            for name in ('AUTH_JWT_SECRET', 'BACKEND_POSTGRES_PASSWORD', 'BENCH_API_TOKEN'):
                 self.assertEqual(len(settings[name]), 64)
                 int(settings[name], 16)
+
+    def test_backend_bench_token_preserves_settings_and_existing_token(self):
+        for value in (None, '', '""', "''", '# not configured'):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / '.env.backend'
+                prefix = 'AUTH_JWT_SECRET=existing-secret\nCUSTOM_SETTING=keep-me\n'
+                token_line = '' if value is None else f'BENCH_API_TOKEN={value}\n'
+                destination.write_text(prefix + token_line + 'DEFAULT_MODEL=meno-lite\n')
+                env = dict(os.environ, BACKEND_ENV_FILE=str(destination))
+                command = [str(ROOT/'scripts/backend.sh'), 'bench-token']
+                first_run = subprocess.run(command, env=env, check=True, text=True, capture_output=True)
+                first = destination.read_bytes()
+                self.assertTrue(first.decode().startswith(prefix))
+                self.assertIn('DEFAULT_MODEL=meno-lite\n', first.decode())
+                token = next(line.split('=', 1)[1] for line in first.decode().splitlines()
+                             if line.startswith('BENCH_API_TOKEN='))
+                self.assertEqual(len(token), 64)
+                self.assertNotIn(token, first_run.stdout + first_run.stderr)
+                subprocess.run(command, env=env, check=True, capture_output=True)
+                self.assertEqual(destination.read_bytes(), first)
+                self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
+
+    def test_backend_bench_token_does_not_replace_populated_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / '.env.backend'
+            original = 'AUTH_JWT_SECRET=keep-secret\nBENCH_API_TOKEN="keep-token" # existing\n'
+            destination.write_text(original)
+            result = subprocess.run([str(ROOT/'scripts/backend.sh'), 'bench-token'], check=True,
+                                    text=True, capture_output=True,
+                                    env=dict(os.environ, BACKEND_ENV_FILE=str(destination)))
+            self.assertEqual(destination.read_text(), original)
+            self.assertNotIn('keep-token', result.stdout + result.stderr)
 
     def test_backend_runs_isolated_with_native_models_and_existing_qdrant(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -14,7 +14,7 @@ from pathlib import Path
 
 destination, template = map(Path, sys.argv[1:])
 text = template.read_text()
-for key in ("BACKEND_POSTGRES_PASSWORD", "AUTH_JWT_SECRET"):
+for key in ("BACKEND_POSTGRES_PASSWORD", "AUTH_JWT_SECRET", "BENCH_API_TOKEN"):
     text = text.replace(f"{key}=\n", f"{key}={secrets.token_hex(32)}\n")
 try:
     descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -24,6 +24,46 @@ else:
     with os.fdopen(descriptor, "w") as stream:
         stream.write(text)
     print(f"Настройки отдельного backend созданы: {destination}")
+PY
+    exit 0
+fi
+if [[ "${1:-}" == bench-token ]]; then
+    python3 - "$env_file" <<'PY'
+import os
+import re
+import secrets
+import shlex
+import sys
+import tempfile
+from pathlib import Path
+
+destination = Path(sys.argv[1])
+if not destination.is_file():
+    raise SystemExit('Сначала выполните ./scripts/backend.sh init')
+text = destination.read_text()
+pattern = re.compile(r'^[ \t]*(?:export[ \t]+)?BENCH_API_TOKEN[ \t]*=[ \t]*(.*)$', re.MULTILINE)
+matches = list(pattern.finditer(text))
+value = shlex.split(matches[-1].group(1), comments=True) if matches else []
+if value and any(value):
+    destination.chmod(0o600)
+    print(f'Токен бенчмарка уже задан в {destination}')
+else:
+    token = secrets.token_hex(32)
+    if matches:
+        text = pattern.sub(f'BENCH_API_TOKEN={token}', text)
+    else:
+        text += ('' if text.endswith('\n') else '\n') + f'BENCH_API_TOKEN={token}\n'
+    descriptor, temporary = tempfile.mkstemp(prefix='.env.backend.', dir=destination.parent)
+    try:
+        with os.fdopen(descriptor, 'w') as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    print(f'Токен бенчмарка записан в {destination}')
 PY
     exit 0
 fi
