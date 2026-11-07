@@ -18,6 +18,7 @@ meno-bench-token.conf
 .meno_grafana_htpasswd
 
 .env.core
+.env.backend
 state/
 backups/
 __pycache__/
